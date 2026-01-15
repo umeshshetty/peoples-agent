@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="People's Agent - Your AI-powered second brain. Store thoughts, explore connections, and let AI help you organize.">
+    <title>People's Agent | Your Second Brain</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="brain-world.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Background effects -->
+        <div class="bg-gradient"></div>
+        <div class="bg-mesh"></div>
+        <div class="floating-orbs">
+            <div class="orb orb-1"></div>
+            <div class="orb orb-2"></div>
+            <div class="orb orb-3"></div>
+        </div>
+
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="16" cy="16" r="14" stroke="url(#logo-gradient)" stroke-width="2.5" />
+                        <path d="M16 8C11.6 8 8 11.6 8 16C8 20.4 11.6 24 16 24C20.4 24 24 20.4 24 16"
+                            stroke="url(#logo-gradient)" stroke-width="2.5" stroke-linecap="round" />
+                        <circle cx="16" cy="16" r="3" fill="url(#logo-gradient)" />
+                        <defs>
+                            <linearGradient id="logo-gradient" x1="8" y1="8" x2="24" y2="24">
+                                <stop stop-color="#8B5CF6" />
+                                <stop offset="1" stop-color="#06B6D4" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <span class="logo-text">People's Agent</span>
+            </div>
+            <nav class="nav">
+                <button class="nav-btn" id="theme-toggle">
+                    <svg class="icon-sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2">
+                        <circle cx="12" cy="12" r="5" />
+                        <path
+                            d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                    </svg>
+                    <svg class="icon-moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                </button>
+            </nav>
+        </header>
+
+        <!-- Main content -->
+        <main class="main">
+            <!-- View Navigation Tabs -->
+            <div class="view-tabs">
+                <button class="view-tab active" data-view="chat">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    </svg>
+                    Chat
+                </button>
+                <button class="view-tab" data-view="brain">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path
+                            d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+                        <path d="M9 22h6M12 17v5" />
+                    </svg>
+                    Brain World
+                </button>
+            </div>
+
+            <!-- Chat View -->
+            <div class="chat-view active" id="chat-view">
+                <div class="hero">
+                    <h1 class="hero-title">
+                        <span class="gradient-text">Your Second Brain</span>
+                        <br>
+                        <span class="subtitle">Store, connect, and explore your thoughts</span>
+                    </h1>
+                    <p class="hero-description">
+                        Share notes, ask questions, and let AI organize your ideas into a connected knowledge base.
+                    </p>
+                </div>
+
+                <!-- Thought input card -->
+                <div class="input-card">
+                    <div class="input-card-glow"></div>
+                    <div class="input-card-content">
+                        <div class="input-header">
+                            <div class="input-label">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path
+                                        d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+                                    <path d="M17 4a2 2 0 0 0 2 2a2 2 0 0 0 -2 2a2 2 0 0 0 -2 -2a2 2 0 0 0 2 -2" />
+                                    <path d="M19 11h2m-1 -1v2" />
+                                </svg>
+                                <span>What's on your mind?</span>
+                            </div>
+                            <div class="char-count" id="char-count">0 / 5000</div>
+                        </div>
+                        <textarea id="thought-input" class="thought-input"
+                            placeholder="Add a note, ask a question, or share what you're thinking about..."
+                            maxlength="5000"></textarea>
+                        <div class="input-footer">
+                            <div class="input-hints">
+                                <span class="hint-tag">📝 Store Notes</span>
+                                <span class="hint-tag">❓ Ask Questions</span>
+                                <span class="hint-tag">🎯 Track Goals</span>
+                            </div>
+                            <button class="submit-btn" id="submit-btn">
+                                <span class="btn-text">Send to AI</span>
+                                <svg class="btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2">
+                                    <path d="M22 2L11 13" />
+                                    <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+                                </svg>
+                                <div class="btn-shine"></div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent thoughts section -->
+                <div class="recent-section">
+                    <h2 class="section-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12,6 12,12 16,14" />
+                        </svg>
+                        Conversation
+                    </h2>
+                    <div class="thoughts-list" id="thoughts-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="1.5">
+                                    <path
+                                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                </svg>
+                            </div>
+                            <p>Your thoughts will appear here</p>
+                            <span class="empty-hint">Start typing above to store your first note</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Brain World View -->
+            <div class="brain-world" id="brain-world">
+                <!-- Stats -->
+                <div class="brain-stats" id="brain-stats"></div>
+
+                <!-- Categories Grid -->
+                <div class="categories-grid" id="categories-grid"></div>
+
+                <!-- Category Detail View (hidden by default) -->
+                <div class="category-detail" id="category-detail">
+                    <div class="detail-header">
+                        <button class="back-btn" id="back-to-categories">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M19 12H5M12 19l-7-7 7-7" />
+                            </svg>
+                        </button>
+                        <h2 class="detail-title" id="detail-title"></h2>
+                    </div>
+                    <div class="detail-items" id="detail-items"></div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>🧠 Your personal AI-powered second brain</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
