@@ -212,7 +212,7 @@ function showThoughtError(id, message) {
                         <line x1="12" y1="8" x2="12" y2="12"/>
                         <line x1="12" y1="16" x2="12.01" y2="16"/>
                     </svg>
-                    <span>Could not connect to AI. Make sure the backend is running.</span>
+                    <span>Error: ${message}. Make sure backend is running at http://localhost:8000</span>
                     <button class="retry-btn" onclick="retryThought('${id}')">Retry</button>
                 </div>
             `;

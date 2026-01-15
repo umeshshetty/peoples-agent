@@ -165,8 +165,8 @@ class Neo4jKnowledgeGraph:
                 SET t.content = $content,
                     t.summary = $summary,
                     t.timestamp = $timestamp
-            """, id=thought.id, content=thought.content, 
-                summary=thought.summary, timestamp=thought.timestamp)
+            """, {"id": thought.id, "content": thought.content, 
+                  "summary": thought.summary, "timestamp": thought.timestamp})
             
             # Create entities and relationships
             for entity in thought.entities:
@@ -177,8 +177,8 @@ class Neo4jKnowledgeGraph:
                     WITH e
                     MATCH (t:Thought {id: $thought_id})
                     MERGE (t)-[:MENTIONS]->(e)
-                """, key=entity_key, name=entity.name, type=entity.type,
-                    description=entity.description, thought_id=thought.id)
+                """, {"key": entity_key, "name": entity.name, "type": entity.type,
+                      "description": entity.description, "thought_id": thought.id})
             
             # Create categories and relationships
             for category in thought.categories:
@@ -187,8 +187,8 @@ class Neo4jKnowledgeGraph:
                     WITH c
                     MATCH (t:Thought {id: $thought_id})
                     MERGE (t)-[:BELONGS_TO {confidence: $confidence}]->(c)
-                """, name=category.name, thought_id=thought.id,
-                    confidence=category.confidence)
+                """, {"name": category.name, "thought_id": thought.id,
+                      "confidence": category.confidence})
     
     def add_conversation_message(self, role: str, content: str, thought_id: str = None):
         """Add a message to conversation history."""
@@ -233,7 +233,7 @@ class Neo4jKnowledgeGraph:
                 ORDER BY t.timestamp DESC
                 LIMIT $limit
                 RETURN t, entities, categories
-            """, query=query, limit=limit)
+            """, {"query": query, "limit": limit})
             
             thoughts = []
             for record in result:
@@ -253,8 +253,8 @@ class Neo4jKnowledgeGraph:
                 MATCH (t:Thought)-[:MENTIONS]->(e:Entity)
                 WHERE toLower(e.name) CONTAINS toLower($name)
                 RETURN t {.id, .content, .summary, .timestamp}
-            """, name=entity_name)
-            return [ThoughtNode(**record["t"], entities=[], categories=[]) for record in result]
+            """, {"name": entity_name})  # Pass as dict
+            return [ThoughtNode(entities=[], categories=[], **record["t"]) for record in result]
     
     def find_by_category(self, category: str) -> List[ThoughtNode]:
         """Find thoughts in a category."""
@@ -262,8 +262,8 @@ class Neo4jKnowledgeGraph:
             result = session.run("""
                 MATCH (t:Thought)-[:BELONGS_TO]->(c:Category {name: $category})
                 RETURN t {.id, .content, .summary, .timestamp}
-            """, category=category)
-            return [ThoughtNode(**record["t"], entities=[], categories=[]) for record in result]
+            """, {"category": category})  # Pass as dict
+            return [ThoughtNode(entities=[], categories=[], **record["t"]) for record in result]
     
     def find_related_thoughts(self, thought_id: str, limit: int = 5) -> List[ThoughtNode]:
         """Find thoughts connected via shared entities."""
@@ -275,8 +275,8 @@ class Neo4jKnowledgeGraph:
                 ORDER BY shared DESC
                 LIMIT $limit
                 RETURN t2 {.id, .content, .summary, .timestamp}
-            """, id=thought_id, limit=limit)
-            return [ThoughtNode(**record["t2"], entities=[], categories=[]) for record in result]
+            """, {"id": thought_id, "limit": limit})  # Pass as dict
+            return [ThoughtNode(entities=[], categories=[], **record["t2"]) for record in result]
     
     def get_context_for_thought(self, entity_names: List[str], limit: int = 5) -> str:
         """Get context from related thoughts."""
@@ -289,7 +289,7 @@ class Neo4jKnowledgeGraph:
                 WHERE toLower(e.name) CONTAINS toLower(entity_name)
                 RETURN DISTINCT t.content as content
                 LIMIT $limit
-            """, entities=entity_names, limit=limit)
+            """, {"entities": entity_names, "limit": limit})  # Pass as dict
             contents = [record["content"] for record in result]
             if not contents:
                 return ""
