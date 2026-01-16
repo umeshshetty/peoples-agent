@@ -5,13 +5,15 @@ Serves the LangGraph agent via REST API with knowledge graph capabilities.
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 import asyncio
 import json
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 from graph import process_thought, agent, AgentState
 from knowledge_graph import knowledge_graph, ThoughtNode
@@ -25,6 +27,9 @@ from langchain_core.messages import HumanMessage
 # ============================================================================
 # FastAPI App Setup
 # ============================================================================
+
+# Path to frontend files (parent directory of backend)
+FRONTEND_DIR = Path(__file__).parent.parent
 
 app = FastAPI(
     title="People's Agent API",
@@ -102,6 +107,11 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     knowledge_graph: str
+
+
+class ReviewRequest(BaseModel):
+    """Request to mark a thought as reviewed."""
+    difficulty: str  # 'easy', 'medium', 'hard'
 
 
 # ============================================================================
@@ -224,6 +234,31 @@ async def get_related_thoughts(thought_id: str, limit: int = 5):
 # Brain World API Endpoints
 # ============================================================================
 
+@app.get("/api/radar")
+async def get_project_radar():
+    """Get data for Project Radar visualization."""
+    try:
+        data = knowledge_graph.get_project_radar_data()
+        return {"projects": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching radar data: {str(e)}")
+
+
+@app.get("/api/serendipity")
+async def get_serendipity_suggestions(entities: str = ""):
+    """
+    Get serendipity nudges based on provided entity names.
+    Pass comma-separated entity names to find structural holes.
+    """
+    try:
+        from serendipity_agent import get_serendipity_nudges
+        entity_list = [e.strip() for e in entities.split(",") if e.strip()]
+        nudges = get_serendipity_nudges(knowledge_graph, entity_list)
+        return {"nudges": nudges}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating nudges: {str(e)}")
+
+
 @app.get("/api/brain/insights")
 async def get_brain_insights():
     """
@@ -314,6 +349,27 @@ async def find_similar_notes(thought_id: str, limit: int = 5):
         return {"thought_id": thought_id, "similar": similar}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error finding similar: {str(e)}")
+
+
+@app.get("/api/resurface")
+async def get_resurface_queue(limit: int = 5):
+    """Get thoughts due for review (Spaced Repetition)."""
+    try:
+        queue = knowledge_graph.get_resurface_queue(limit)
+        results = [t.to_dict() for t in queue]
+        return {"queue": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching queue: {str(e)}")
+
+
+@app.post("/api/thoughts/{thought_id}/review")
+async def review_thought(thought_id: str, request: ReviewRequest):
+    """Mark a thought as reviewed with a difficulty rating."""
+    try:
+        knowledge_graph.mark_as_reviewed(thought_id, request.difficulty)
+        return {"status": "success", "thought_id": thought_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reviewing thought: {str(e)}")
 
 
 # ============================================================================
@@ -472,6 +528,31 @@ async def think_stream(request: ThoughtRequest):
             "Connection": "keep-alive",
         }
     )
+
+
+# ============================================================================
+# Static Frontend Serving
+# ============================================================================
+
+@app.get("/")
+async def serve_frontend():
+    """Serve the main frontend page."""
+    return FileResponse(FRONTEND_DIR / "index.html")
+
+@app.get("/app.js")
+async def serve_js():
+    """Serve the main JavaScript file."""
+    return FileResponse(FRONTEND_DIR / "app.js", media_type="application/javascript")
+
+@app.get("/styles.css")
+async def serve_styles():
+    """Serve the main CSS file."""
+    return FileResponse(FRONTEND_DIR / "styles.css", media_type="text/css")
+
+@app.get("/brain-world.css")
+async def serve_brain_css():
+    """Serve the Brain World CSS file."""
+    return FileResponse(FRONTEND_DIR / "brain-world.css", media_type="text/css")
 
 
 # ============================================================================

@@ -15,9 +15,15 @@ from datetime import datetime
 
 # Local imports
 from knowledge_graph import (
-    knowledge_graph, ThoughtNode, Entity, Category
+    knowledge_graph, ThoughtNode, Entity, Category, ActionItem, SocialNudge
 )
-from extraction_agents import extract_all, find_relationship_context
+from extraction_agents import extract_all, find_relationship_context, critique_extraction, refine_extraction
+from enrichment_agents import (
+    analyze_intent_and_risk, find_social_connections, audit_actionability
+)
+from serendipity_agent import get_serendipity_nudges
+from zettelkasten_agent import should_atomize, atomize_content, create_atomic_thoughts
+from task_decomposition_agent import decompose_task, create_task_hierarchy
 from synthesis_agents import run_synthesis_pipeline
 from classification_agents import run_classification_pipeline
 import vector_store
@@ -67,6 +73,17 @@ class AgentState(TypedDict):
     para_classification: str
     # Extracted tasks with deadlines
     tasks: List[dict]
+    # Reflection loop state
+    reflection_iterations: int
+    critique: str
+    # Enrichment State
+    is_blocker: bool
+    affected_project: str
+    actions: List[dict]
+    nudges: List[dict]
+    serendipity_nudges: List[dict]
+    atomic_notes_created: List[str]
+    task_hierarchy: dict
 
 
 # ============================================================================
@@ -88,8 +105,8 @@ def get_llm():
 
 async def context_loader(state: AgentState) -> AgentState:
     """
-    Loads conversation context and checks if this is a question.
-    Also retrieves relevant notes if the user is asking a question.
+    Loads conversation context and CHECKS for relevant notes for ALL thoughts.
+    This enables 'Proactive Context' - giving the AI short-term memory of related concepts.
     """
     thought = state['thought']
     
@@ -102,15 +119,15 @@ async def context_loader(state: AgentState) -> AgentState:
         thought.lower().startswith(('what', 'how', 'why', 'when', 'where', 'who', 'can', 'could', 'would', 'should', 'do', 'does', 'is', 'are', 'tell me', 'explain', 'help me'))
     )
     
-    # If it's a question, search stored notes (vector + graph)
+    # Proactive Retrieval: ALWAYS fetch top 3 relevant notes from Vector Store
+    # This helps disambiguate entities like "him" or "the project"
     retrieved_notes = ""
+    semantic_results = vector_store.get_context_for_query(thought, limit=3)
+    if semantic_results:
+        retrieved_notes = semantic_results + "\n"
+    
+    # Also search knowledge graph for questions or if keywords found
     if is_question:
-        # Try semantic search first
-        semantic_results = vector_store.get_context_for_query(thought, limit=3)
-        if semantic_results:
-            retrieved_notes = semantic_results + "\n"
-        
-        # Also search knowledge graph
         relevant_thoughts = knowledge_graph.search_notes(thought, limit=3)
         if relevant_thoughts:
             retrieved_notes += "\nFrom your knowledge graph:\n"
@@ -122,6 +139,8 @@ async def context_loader(state: AgentState) -> AgentState:
         "conversation_context": conversation_context,
         "is_question": is_question,
         "retrieved_notes": retrieved_notes,
+        "reflection_iterations": 0,  # Initialize loop counter
+        "critique": "",
         "stage": "context_loaded"
     }
 
@@ -129,11 +148,15 @@ async def context_loader(state: AgentState) -> AgentState:
 async def knowledge_extractor(state: AgentState) -> AgentState:
     """
     Extracts entities, categories, and summary from the thought.
-    Also retrieves context from related past thoughts.
+    Uses 'retrieved_notes' and 'conversation_context' to improve extraction accuracy.
     """
-    entities, categories, summary = await extract_all(state['thought'])
+    # Combine contexts for extraction
+    full_context = f"{state.get('conversation_context', '')}\n{state.get('retrieved_notes', '')}"
     
-    # Get context from knowledge graph based on extracted entities
+    entities, categories, summary = await extract_all(state['thought'], context=full_context)
+    
+    # Get deeper context from knowledge graph based on extracted entities
+    # This is "2nd hop" retrieval
     entity_names = [e.name for e in entities]
     related_context = knowledge_graph.get_context_for_thought(entity_names)
     
@@ -144,6 +167,88 @@ async def knowledge_extractor(state: AgentState) -> AgentState:
         "summary": summary,
         "related_context": related_context,
         "stage": "extracted"
+    }
+
+
+async def reflection_node(state: AgentState) -> AgentState:
+    """
+    The Critic Agent.
+    Reviews the draft entities against the context to find missing links.
+    """
+    entities = [Entity(**e) for e in state['entities']]
+    context = f"{state.get('conversation_context', '')}\n{state.get('retrieved_notes', '')}"
+    
+    critique = await critique_extraction(state['thought'], entities, context)
+    
+    return {
+        **state,
+        "critique": critique,
+        "reflection_iterations": state['reflection_iterations'] + 1,
+        "stage": "reflected"
+    }
+
+
+async def refinement_node(state: AgentState) -> AgentState:
+    """
+    The Refiner Agent.
+    Updates the entities based on the critique.
+    """
+    entities = [Entity(**e) for e in state['entities']]
+    critique = state['critique']
+    
+    new_entities = await refine_extraction(state['thought'], entities, critique)
+    
+    # If refining entities changes them, we might want to update related context
+    # But for now, we just update the entity list
+    return {
+        **state,
+        "entities": [e.to_dict() for e in new_entities],
+        "stage": "refined"
+    }
+
+
+# ============================================================================
+# NEW: Enrichment Node
+# ============================================================================
+
+async def enrich(state: AgentState):
+    """
+    Active Enrichment Node.
+    Runs 3 specialized agents in parallel:
+    1. Latent Intent (Blocker detection)
+    2. Social Graph (Connection nudges)
+    3. Action Auditor (Task extraction)
+    """
+    print(f"--- ENRICHMENT AGENTS ---")
+    thought_content = state["thought"]
+    extracted_entities = state.get("entities", [])
+    extracted_topics = [e["name"] for e in extracted_entities if e.get("type") in ["Topic", "Concept", "Technology", "Interest"]]
+    
+    # 1. Latent Intent
+    # Get active projects from graph for context
+    active_projects_data = knowledge_graph.get_synthesized_projects()
+    active_project_names = [p["name"] for p in active_projects_data]
+    intent_data = analyze_intent_and_risk(thought_content, active_project_names)
+    
+    # 2. Social Graph
+    # Get people profiles from graph
+    people_profiles = knowledge_graph.get_people()
+    nudges = find_social_connections(extracted_topics, people_profiles)
+    
+    # 3. Action Auditor
+    actions = audit_actionability(thought_content)
+    
+    print(f"   ► Blocker: {intent_data.get('is_blocker')} ({intent_data.get('risk_level')})")
+    print(f"   ► Nudges: {len(nudges)}")
+    print(f"   ► Actions: {len(actions)}")
+    
+    return {
+        **state,
+        "is_blocker": intent_data.get("is_blocker", False),
+        "affected_project": intent_data.get("affected_project_name"),
+        "nudges": nudges,
+        "actions": actions,
+        "stage": "enriched"
     }
 
 
@@ -218,13 +323,19 @@ async def knowledge_saver(state: AgentState) -> AgentState:
     Saves the thought to knowledge graph and updates conversation history.
     """
     # Create thought node
+    # Create thought node
     thought_node = ThoughtNode(
         id=state['thought_id'],
         content=state['thought'],
         summary=state['summary'] or state['thought'][:100],
         timestamp=datetime.now().isoformat(),
         entities=[Entity(**e) for e in state.get('entities', [])],
-        categories=[Category(**c) for c in state.get('categories', [])]
+        categories=[Category(**c) for c in state.get('categories', [])],
+        related_thought_ids=[],
+        actions=[ActionItem(**a) for a in state.get("actions", [])],
+        nudges=[SocialNudge(**n) for n in state.get("nudges", [])],
+        is_blocker=state.get("is_blocker", False),
+        affected_project=state.get("affected_project")
     )
     
     # Save to knowledge graph
@@ -246,8 +357,39 @@ async def knowledge_saver(state: AgentState) -> AgentState:
     knowledge_graph.add_conversation_message("user", state['thought'], state['thought_id'])
     knowledge_graph.add_conversation_message("assistant", state['response'], state['thought_id'])
     
+    # Generate Serendipity Nudges (Structural Hole Detection)
+    entity_names = [e.get("name", "") for e in state.get('entities', [])]
+    serendipity_nudges = get_serendipity_nudges(knowledge_graph, entity_names)
+    
+    # Phase 4.1: Hierarchical Task Decomposition
+    task_hierarchy = {}
+    if state.get('actions'):  # If actions were detected, check for complex tasks
+        decomposition = decompose_task(state['thought'])
+        if decomposition.get('is_complex'):
+            task_hierarchy = create_task_hierarchy(
+                knowledge_graph, 
+                state['thought_id'], 
+                decomposition
+            )
+            print(f"   ► Task Decomposition: {task_hierarchy.get('subtask_count', 0)} subtasks created")
+    
+    # Phase 4.2: Zettelkasten Auto-Atomization (for long-form content)
+    atomic_notes_created = []
+    if should_atomize(state['thought']):
+        atoms = atomize_content(state['thought'])
+        if atoms:
+            atomic_notes_created = create_atomic_thoughts(
+                knowledge_graph,
+                state['thought_id'],
+                atoms
+            )
+            print(f"   ► Zettelkasten: {len(atomic_notes_created)} atomic notes created")
+    
     return {
         **state,
+        "serendipity_nudges": serendipity_nudges,
+        "atomic_notes_created": atomic_notes_created,
+        "task_hierarchy": task_hierarchy,
         "stage": "saved"
     }
 
@@ -323,6 +465,23 @@ def should_use_full_pipeline(state: AgentState) -> Literal["full_pipeline", "sim
     return "full_pipeline"
 
 
+def should_continue_reflection(state: AgentState) -> Literal["refine", "conclude"]:
+    """
+    Decide if we need to refine the extraction based on the critique.
+    Limit recursion to avoid infinite loops.
+    """
+    critique = state['critique'].lower()
+    iterations = state['reflection_iterations']
+    
+    # If critique says "looks good" (and nothing else significant) or we hit max iterations, stop
+    # Check if it STARTS with looks good to allow for "Looks good." but catch "Looks good, except..."
+    if (critique.startswith("Looks good") and len(critique) < 20) or iterations >= 2:
+        return "conclude"
+    
+    # Otherwise, refine
+    return "refine"
+
+
 # ============================================================================
 # Graph Construction
 # ============================================================================
@@ -335,9 +494,12 @@ def build_graph() -> StateGraph:
     # Add nodes
     graph.add_node("load_context", context_loader)
     graph.add_node("extract", knowledge_extractor)
+    graph.add_node("reflect", reflection_node)      # NEW: Critic
+    graph.add_node("refine", refinement_node)        # NEW: Refiner
+    graph.add_node("enrich", enrich)                 # NEW: Enrichment
     graph.add_node("respond", assistant_responder)
     graph.add_node("save", knowledge_saver)
-    graph.add_node("synthesize", synthesis_node)  # Background synthesis
+    graph.add_node("synthesize", synthesis_node)
     graph.add_node("simple", simple_responder)
     
     # Define flow
@@ -353,13 +515,31 @@ def build_graph() -> StateGraph:
         }
     )
     
-    # Full pipeline: extract -> respond -> save -> synthesize
-    graph.add_edge("extract", "respond")
+    # Extraction -> Reflection
+    graph.add_edge("extract", "reflect")
+    
+    # Reflection loop
+    graph.add_conditional_edges(
+        "reflect",
+        should_continue_reflection,
+        {
+            "refine": "refine",
+            "conclude": "enrich"  # Redirect to Enrichment instead of Respond
+        }
+    )
+    
+    # Refinement goes back to reflection
+    graph.add_edge("refine", "reflect")
+    
+    # Enrichment -> Respond
+    graph.add_edge("enrich", "respond")
+    
+    # Main path continues
     graph.add_edge("respond", "save")
     graph.add_edge("save", "synthesize")
     graph.add_edge("synthesize", END)
     
-    # Simple path also saves and synthesizes
+    # Simple path
     graph.add_edge("simple", "save")
     
     return graph.compile()
@@ -395,7 +575,9 @@ async def process_thought(thought: str) -> dict:
         "entities": [],
         "categories": [],
         "summary": "",
-        "related_context": ""
+        "related_context": "",
+        "reflection_iterations": 0,
+        "critique": ""
     }
     
     result = await agent.ainvoke(initial_state)
@@ -408,7 +590,10 @@ async def process_thought(thought: str) -> dict:
         "entities": result.get("entities", []),
         "categories": result.get("categories", []),
         "summary": result.get("summary", ""),
-        "has_connections": bool(result.get("related_context") or result.get("retrieved_notes"))
+        "has_connections": bool(result.get("related_context") or result.get("retrieved_notes")),
+        "serendipity_nudges": result.get("serendipity_nudges", []),
+        "actions": result.get("actions", []),
+        "is_blocker": result.get("is_blocker", False)
     }
 
 
@@ -426,10 +611,5 @@ if __name__ == "__main__":
         print("Asking a question...")
         r2 = await process_thought("When is my meeting with John?")
         print(f"Response: {r2['response']}\n")
-        
-        # Test 3: Follow-up
-        print("Follow-up...")
-        r3 = await process_thought("What was the meeting about again?")
-        print(f"Response: {r3['response']}\n")
     
     asyncio.run(test())

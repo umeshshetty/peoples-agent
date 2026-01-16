@@ -3,7 +3,7 @@ People's Agent - Extraction Agents
 LLM-powered agents for extracting entities, categories, and relationships.
 """
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 from knowledge_graph import Entity, Category
@@ -16,12 +16,12 @@ MODEL_NAME = os.getenv("OLLAMA_MODEL", "llama3.2:latest")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
-def get_llm():
+def get_llm(temperature=0.3):
     """Get the Ollama LLM instance."""
     return ChatOllama(
         model=MODEL_NAME,
         base_url=OLLAMA_BASE_URL,
-        temperature=0.3,  # Lower temperature for more consistent extraction
+        temperature=temperature,
     )
 
 
@@ -117,15 +117,14 @@ async def classify_categories(thought: str) -> List[Category]:
         # Try to parse JSON from response
         json_match = re.search(r'\[.*\]', content, re.DOTALL)
         if json_match:
+            categories = []
             categories_data = json.loads(json_match.group())
-            return [
-                Category(
-                    name=c.get("name", "Ideas"),
-                    confidence=float(c.get("confidence", 0.5))
-                )
-                for c in categories_data
-                if c.get("name")
-            ]
+            for c in categories_data:
+                if isinstance(c, str):
+                    categories.append(Category(name=c, confidence=0.8))
+                elif isinstance(c, dict):
+                    categories.append(Category(name=c.get("name", "Ideas"), confidence=float(c.get("confidence", 0.8))))
+            return categories
     except Exception as e:
         print(f"Category classification error: {e}")
     
@@ -205,18 +204,123 @@ If no clear connection, just say "New topic introduced."
 
 
 # ============================================================================
+# Reflection & Critique Agents (Cognitive Loop)
+# ============================================================================
+
+CRITIC_PROMPT = """Context from History:
+{context}
+
+Original Thought: {thought}
+
+Draft Entities: {entities}
+
+You are a data quality critic. Review the Draft Entities against the Thought and Context.
+Did we miss any important entities mentioned in the context (like "he" referring to a specific person)?
+Are the entity types correct?
+
+If missing entities are found to exist in the context, explicitly list them.
+If everything looks good, just say "Looks good."
+"""
+
+REFINER_PROMPT = """You are a Data Refiner.
+I have a list of extracted entities and a critique from a reviewer.
+Your job is to update the entity list to fix any issues mentioned in the critique.
+
+Critique: {critique}
+
+Current Entities: {entities}
+
+INSTRUCTIONS:
+1. If the critique adds new entities (e.g. "Add Susan Storm"), add them to the list.
+2. If the critique says "Looks good", return the Current Entities unchanged.
+3. Return ONLY the final JSON array of entities. Do not add explanation text.
+
+Example Output:
+[
+  {{"name": "Susan Storm", "type": "Person", "description": "Flight Director"}}
+]
+"""
+
+async def critique_extraction(thought: str, entities: List[Entity], context: str) -> str:
+    """Review the extraction for quality and missed connections."""
+    llm = get_llm(temperature=0.5)
+    entities_json = json.dumps([e.to_dict() for e in entities])
+    
+    prompt_content = CRITIC_PROMPT.format(
+        thought=thought,
+        context=context,
+        entities=entities_json
+    )
+    
+    # Use HumanMessage for better local model adherence
+    messages = [
+        HumanMessage(content=prompt_content)
+    ]
+    
+    try:
+        response = await llm.ainvoke(messages)
+        content = response.content.strip()
+        return content
+    except Exception as e:
+        print(f"Critique error: {e}")
+        return "Looks good."
+
+async def refine_extraction(thought: str, entities: List[Entity], critique: str) -> List[Entity]:
+    """Refine entities based on critique."""
+    if critique.lower().startswith("looks good") or len(critique) < 5:
+        return entities
+        
+    llm = get_llm(temperature=0.3)
+    entities_json = json.dumps([e.to_dict() for e in entities])
+    
+    prompt_content = REFINER_PROMPT.format(
+        critique=critique,
+        entities=entities_json
+    )
+    
+    messages = [
+        HumanMessage(content=prompt_content)
+    ]
+    
+    try:
+        response = await llm.ainvoke(messages)
+        content = response.content.strip()
+        
+        # Try to parse JSON from response
+        json_match = re.search(r'\[.*\]', content, re.DOTALL)
+        if json_match:
+            entities_data = json.loads(json_match.group())
+            return [
+                Entity(
+                    name=e.get("name", ""),
+                    type=e.get("type", "Concept"),
+                    description=e.get("description", "")
+                )
+                for e in entities_data
+                if e.get("name")
+            ]
+    except Exception as e:
+        print(f"Refinement error: {e}")
+    
+    return entities
+
+
+# ============================================================================
 # Combined Extraction Pipeline
 # ============================================================================
 
-async def extract_all(thought: str) -> Tuple[List[Entity], List[Category], str]:
+async def extract_all(thought: str, context: str = "") -> Tuple[List[Entity], List[Category], str]:
     """
     Run full extraction pipeline on a thought.
+    Now accepts context for better extraction.
     
     Returns:
         Tuple of (entities, categories, summary)
     """
-    # Run extractions in parallel would be ideal, but for simplicity run sequentially
+    # Run initial extraction
     entities = await extract_entities(thought)
+    
+    # Categories and summary don't usually need reflection, keep them fast
     categories = await classify_categories(thought)
     summary = await generate_summary(thought)
     

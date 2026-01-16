@@ -51,6 +51,28 @@ class Category:
     confidence: float = 1.0
 
 
+@dataclass
+class ActionItem:
+    """Represents an actionable task extracted from a thought."""
+    description: str
+    urgency: int = 1
+    status: str = "pending"
+    
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class SocialNudge:
+    """Represents a suggested social connection."""
+    person_name: str
+    reason: str
+    suggestion: str
+    
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
 @dataclass 
 class ThoughtNode:
     """Represents a thought in the knowledge graph."""
@@ -61,6 +83,15 @@ class ThoughtNode:
     entities: List[Entity] = field(default_factory=list)
     categories: List[Category] = field(default_factory=list)
     related_thought_ids: List[str] = field(default_factory=list)
+    # Enrichment fields
+    is_blocker: bool = False
+    affected_project: Optional[str] = None
+    actions: List[ActionItem] = field(default_factory=list)
+    nudges: List[SocialNudge] = field(default_factory=list)
+    # Spaced Repetition fields
+    review_count: int = 0
+    last_reviewed: Optional[str] = None
+    ease_factor: float = 2.5  # SM-2 default
     
     def to_dict(self) -> dict:
         return {
@@ -70,7 +101,14 @@ class ThoughtNode:
             "timestamp": self.timestamp,
             "entities": [e.to_dict() for e in self.entities],
             "categories": [{"name": c.name, "confidence": c.confidence} for c in self.categories],
-            "related_thought_ids": self.related_thought_ids
+            "related_thought_ids": self.related_thought_ids,
+            "actions": [a.to_dict() for a in self.actions],
+            "nudges": [n.to_dict() for n in self.nudges],
+            "is_blocker": self.is_blocker,
+            "affected_project": self.affected_project,
+            "review_count": self.review_count,
+            "last_reviewed": self.last_reviewed,
+            "ease_factor": self.ease_factor
         }
     
     @classmethod
@@ -82,7 +120,14 @@ class ThoughtNode:
             timestamp=data["timestamp"],
             entities=[Entity(**e) for e in data.get("entities", [])],
             categories=[Category(**c) for c in data.get("categories", [])],
-            related_thought_ids=data.get("related_thought_ids", [])
+            related_thought_ids=data.get("related_thought_ids", []),
+            actions=[ActionItem(**a) for a in data.get("actions", [])],
+            nudges=[SocialNudge(**n) for n in data.get("nudges", [])],
+            is_blocker=data.get("is_blocker", False),
+            affected_project=data.get("affected_project"),
+            review_count=data.get("review_count", 0),
+            last_reviewed=data.get("last_reviewed"),
+            ease_factor=data.get("ease_factor", 2.5)
         )
 
 
@@ -164,9 +209,19 @@ class Neo4jKnowledgeGraph:
                 MERGE (t:Thought {id: $id})
                 SET t.content = $content,
                     t.summary = $summary,
-                    t.timestamp = $timestamp
+                    t.timestamp = $timestamp,
+                    t.review_count = coalesce(t.review_count, $review_count),
+                    t.last_reviewed = coalesce(t.last_reviewed, $last_reviewed),
+                    t.ease_factor = coalesce(t.ease_factor, $ease_factor),
+                    t.is_blocker = $is_blocker,
+                    t.affected_project = $affected_project
             """, {"id": thought.id, "content": thought.content, 
-                  "summary": thought.summary, "timestamp": thought.timestamp})
+                  "summary": thought.summary, "timestamp": thought.timestamp,
+                  "review_count": thought.review_count,
+                  "last_reviewed": thought.last_reviewed,
+                  "ease_factor": thought.ease_factor,
+                  "is_blocker": thought.is_blocker,
+                  "affected_project": thought.affected_project})
             
             # Create entities and relationships
             for entity in thought.entities:
@@ -189,6 +244,27 @@ class Neo4jKnowledgeGraph:
                     MERGE (t)-[:BELONGS_TO {confidence: $confidence}]->(c)
                 """, {"name": category.name, "thought_id": thought.id,
                       "confidence": category.confidence})
+            
+            # Create Action Items
+            for action in thought.actions:
+                session.run("""
+                    MERGE (a:ActionItem {description: $desc, thought_id: $tid})
+                    SET a.urgency = $urgency, a.status = $status
+                    WITH a
+                    MATCH (t:Thought {id: $tid})
+                    MERGE (t)-[:IMPLIES]->(a)
+                """, {"desc": action.description, "tid": thought.id, 
+                      "urgency": action.urgency, "status": action.status})
+                      
+            # Handle Project Risks
+            if thought.is_blocker and thought.affected_project:
+                session.run("""
+                    MATCH (p:Entity {name: $proj_name})
+                    WHERE p.type IN ['Project', 'Product', 'Tool']
+                    SET p.status = 'at_risk', p.risk_level = 'high'
+                    MERGE (t:Thought {id: $tid})
+                    MERGE (t)-[:BLOCKS]->(p)
+                """, {"proj_name": thought.affected_project, "tid": thought.id})
     
     def add_conversation_message(self, role: str, content: str, thought_id: str = None):
         """Add a message to conversation history."""
@@ -294,6 +370,89 @@ class Neo4jKnowledgeGraph:
             if not contents:
                 return ""
             return "Your related notes:\n" + "\n".join(f"- {c[:200]}..." if len(c) > 200 else f"- {c}" for c in contents)
+    
+    # ========================================================================
+    # Spaced Repetition / Smart Re-surface
+    # ========================================================================
+    
+    def get_resurface_queue(self, limit: int = 5) -> List[ThoughtNode]:
+        """
+        Get thoughts due for review based on Spaced Repetition (SM-2 simplified).
+        Logic: 
+        - New thoughts (review_count=0) that are > 1 day old
+        - Reviewed thoughts where interval has passed
+        """
+        with self.driver.session() as session:
+            # Simple heuristic for now: 
+            # 1. Keep it simple: Find items not reviewed recently matching rough intervals
+            # 2. Sort by review priority
+            result = session.run("""
+                MATCH (t:Thought)
+                WHERE t.review_count IS NULL OR t.review_count = 0
+                   OR (
+                       t.review_count > 0 
+                       AND datetime(t.last_reviewed) + duration({days: toInteger(t.ease_factor ^ t.review_count)}) < datetime()
+                   )
+                RETURN t
+                ORDER BY t.timestamp ASC
+                LIMIT $limit
+            """, {"limit": limit})
+            
+            thoughts = []
+            for record in result:
+                t = record["t"]
+                # Fetch related info lazily or update query to fetch all
+                # For queue, we just need basic info usually
+                thoughts.append(ThoughtNode(
+                    id=t["id"], content=t["content"], summary=t["summary"],
+                    timestamp=t["timestamp"],
+                    review_count=t.get("review_count", 0),
+                    last_reviewed=t.get("last_reviewed"),
+                    ease_factor=t.get("ease_factor", 2.5)
+                ))
+            return thoughts
+
+    def mark_as_reviewed(self, thought_id: str, difficulty: str) -> None:
+        """
+        Update review stats using SM-2 algorithm principles.
+        Difficulty: 'easy', 'medium', 'hard'
+        """
+        # Map difficulty to quality score (0-5)
+        quality_map = {'easy': 5, 'medium': 4, 'hard': 3}
+        quality = quality_map.get(difficulty, 4)
+        
+        with self.driver.session() as session:
+            # Fetch current stats
+            result = session.run("""
+                MATCH (t:Thought {id: $id})
+                RETURN t.review_count as count, t.ease_factor as ef
+            """, {"id": thought_id})
+            record = result.single()
+            
+            if not record:
+                return
+                
+            current_ef = record["ef"] if record["ef"] else 2.5
+            current_count = record["count"] if record["count"] else 0
+            
+            # SM-2 Algorithm update for Ease Factor
+            # EF' = EF + (0.1 - (5-q)*(0.08 + (5-q)*0.02))
+            # Review Count increments
+            
+            new_ef = current_ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+            if new_ef < 1.3: new_ef = 1.3
+            
+            session.run("""
+                MATCH (t:Thought {id: $id})
+                SET t.review_count = $count,
+                    t.ease_factor = $ef,
+                    t.last_reviewed = $now
+            """, {
+                "id": thought_id,
+                "count": current_count + 1,
+                "ef": new_ef,
+                "now": datetime.now().isoformat()
+            })
     
     # ========================================================================
     # Brain World - Insights
@@ -421,6 +580,65 @@ class Neo4jKnowledgeGraph:
                 ORDER BY mention_count DESC
             """)
             return [dict(record) for record in result]
+    
+    def get_project_radar_data(self) -> List[Dict]:
+        """
+        Get data for Project Radar visualization.
+        Metrics:
+        - Velocity: Recent activity (last 7 days)
+        - Maturity: Total knowledge accumulation (total mentions)
+        - Impact: Number of connected entities (people, tools)
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (p:Entity)
+                WHERE p.type IN ['Project', 'Product', 'Tool']
+                
+                // Calculate Total Mentions (Maturity)
+                OPTIONAL MATCH (p)<-[:MENTIONS]-(t:Thought)
+                WITH p, count(t) as total_mentions
+                
+                // Calculate Recent Mentions (Velocity)
+                OPTIONAL MATCH (p)<-[:MENTIONS]-(t2:Thought)
+                WHERE datetime(t2.timestamp) > datetime() - duration({days: 7})
+                WITH p, total_mentions, count(t2) as recent_mentions
+                
+                // Calculate Connections (Impact)
+                OPTIONAL MATCH (p)<-[:MENTIONS]-(t3:Thought)-[:MENTIONS]->(e:Entity)
+                WHERE p <> e
+                WITH p, total_mentions, recent_mentions, count(distinct e) as connections
+                
+                RETURN p.name as name,
+                       total_mentions as maturity,
+                       recent_mentions as velocity,
+                       connections as impact
+                ORDER BY velocity DESC, maturity DESC
+                LIMIT 8
+            """)
+            
+            projects = []
+            max_maturity = 1
+            max_velocity = 1
+            max_impact = 1
+            
+            data = [dict(record) for record in result]
+            
+            # Normalize scores
+            if data:
+                max_maturity = max(d["maturity"] for d in data) or 1
+                max_velocity = max(d["velocity"] for d in data) or 1
+                max_impact = max(d["impact"] for d in data) or 1
+            
+            for d in data:
+                projects.append({
+                    "name": d["name"],
+                    "velocity": min(int((d["velocity"] / max_velocity) * 100), 100) if max_velocity > 0 else 0,
+                    "maturity": min(int((d["maturity"] / max_maturity) * 100), 100) if max_maturity > 0 else 0,
+                    "impact": min(int((d["impact"] / max_impact) * 100), 100) if max_impact > 0 else 0,
+                    "status": "Active" if d["velocity"] > 0 else "Idle"
+                })
+                
+            return projects
     
     def get_meetings(self) -> List[Dict]:
         """Get extracted meetings from Neo4j."""
