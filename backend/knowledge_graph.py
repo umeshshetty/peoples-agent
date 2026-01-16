@@ -654,14 +654,15 @@ class Neo4jKnowledgeGraph:
             """)
             return [dict(record) for record in result]
     
-    def get_all_entities(self) -> List[Dict]:
+    def get_all_entities(self, limit: int = 100) -> List[Dict]:
         """Get all entities with counts."""
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (e:Entity)<-[:MENTIONS]-(t:Thought)
                 RETURN e.name as name, e.type as type, e.description as description, count(t) as thought_count
                 ORDER BY thought_count DESC
-            """)
+                LIMIT $limit
+            """, {"limit": limit})
             return [dict(record) for record in result]
     
     def get_graph_data(self) -> Dict:

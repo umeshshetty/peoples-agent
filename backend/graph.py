@@ -25,6 +25,8 @@ from serendipity_agent import get_serendipity_nudges
 from zettelkasten_agent import should_atomize, atomize_content, create_atomic_thoughts
 from task_decomposition_agent import decompose_task, create_task_hierarchy
 from context_ranker import compress_context, estimate_token_count
+from background_worker import run_in_background
+from entity_resolver import batch_resolve_entities
 from synthesis_agents import run_synthesis_pipeline
 from classification_agents import run_classification_pipeline
 import vector_store
@@ -160,6 +162,16 @@ async def knowledge_extractor(state: AgentState) -> AgentState:
     full_context = f"{state.get('conversation_context', '')}\n{state.get('retrieved_notes', '')}"
     
     entities, categories, summary = await extract_all(state['thought'], context=full_context)
+    
+    # Entity Resolution: Disambiguate similar names against existing graph entities
+    if entities:
+        existing_entities = knowledge_graph.get_all_entities(limit=100)  # Get existing for comparison
+        resolved_entities = batch_resolve_entities(
+            [e.to_dict() for e in entities],
+            existing_entities,
+            context=full_context
+        )
+        entities = [Entity(**e) for e in resolved_entities]
     
     # Get deeper context from knowledge graph based on extracted entities
     # This is "2nd hop" retrieval
@@ -404,26 +416,26 @@ async def synthesis_node(state: AgentState) -> AgentState:
     """
     Run background synthesis agents to organize data.
     Creates profiles for people, projects, and meetings.
+    
+    NOTE: This is now FIRE-AND-FORGET to reduce user-perceived latency.
+    The user gets their response immediately; synthesis happens in background.
     """
-    try:
-        result = await run_synthesis_pipeline(
-            thought_id=state['thought_id'],
-            thought_content=state['thought'],
-            entities=state.get('entities', []),
-            knowledge_graph=knowledge_graph
-        )
-        return {
-            **state,
-            "synthesis_status": result.get('status', {}),
-            "stage": "complete"
-        }
-    except Exception as e:
-        print(f"Synthesis error: {e}")
-        return {
-            **state,
-            "synthesis_status": {"error": str(e)},
-            "stage": "complete"
-        }
+    # Fire and forget - don't block on synthesis
+    synthesis_coro = run_synthesis_pipeline(
+        thought_id=state['thought_id'],
+        thought_content=state['thought'],
+        entities=state.get('entities', []),
+        knowledge_graph=knowledge_graph
+    )
+    
+    # Run in background thread, don't wait
+    run_in_background(synthesis_coro, task_id=f"synth_{state['thought_id']}")
+    
+    return {
+        **state,
+        "synthesis_status": {"status": "queued", "message": "Running in background"},
+        "stage": "complete"
+    }
 
 
 async def simple_responder(state: AgentState) -> AgentState:
