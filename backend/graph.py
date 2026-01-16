@@ -24,6 +24,7 @@ from enrichment_agents import (
 from serendipity_agent import get_serendipity_nudges
 from zettelkasten_agent import should_atomize, atomize_content, create_atomic_thoughts
 from task_decomposition_agent import decompose_task, create_task_hierarchy
+from context_ranker import compress_context, estimate_token_count
 from synthesis_agents import run_synthesis_pipeline
 from classification_agents import run_classification_pipeline
 import vector_store
@@ -133,6 +134,11 @@ async def context_loader(state: AgentState) -> AgentState:
             retrieved_notes += "\nFrom your knowledge graph:\n"
             for t in relevant_thoughts:
                 retrieved_notes += f"- [{t.timestamp[:10]}] {t.content[:200]}...\n"
+    
+    # Compress context if too long (prevents performance degradation at scale)
+    if len(retrieved_notes) > 2500:
+        retrieved_notes = compress_context(retrieved_notes, max_chars=2000)
+        print(f"   ► Context compressed to ~{estimate_token_count(retrieved_notes)} tokens")
     
     return {
         **state,
@@ -469,17 +475,44 @@ def should_continue_reflection(state: AgentState) -> Literal["refine", "conclude
     """
     Decide if we need to refine the extraction based on the critique.
     Limit recursion to avoid infinite loops.
+    
+    Enhanced logic:
+    1. If critique explicitly suggests improvements, refine
+    2. If entity count is suspiciously low, refine
+    3. If critique mentions "missing" or "should include", refine
     """
     critique = state['critique'].lower()
     iterations = state['reflection_iterations']
+    entity_count = len(state.get('entities', []))
     
-    # If critique says "looks good" (and nothing else significant) or we hit max iterations, stop
-    # Check if it STARTS with looks good to allow for "Looks good." but catch "Looks good, except..."
-    if (critique.startswith("Looks good") and len(critique) < 20) or iterations >= 2:
+    # Hard stop after 2 iterations to prevent infinite loops
+    if iterations >= 2:
         return "conclude"
     
-    # Otherwise, refine
-    return "refine"
+    # If critique is generic "looks good", conclude
+    if critique.startswith("looks good") and len(critique) < 30:
+        return "conclude"
+    
+    # Quality signals that suggest we should refine
+    refinement_signals = [
+        "missing", "should include", "could add", "forgot",
+        "overlooked", "didn't catch", "also mention", "important",
+        "person", "project", "relationship"
+    ]
+    
+    for signal in refinement_signals:
+        if signal in critique:
+            print(f"   ► Reflection trigger: Found '{signal}' in critique, refining...")
+            return "refine"
+    
+    # If very few entities extracted from a substantive thought, force refinement
+    thought_length = len(state['thought'].split())
+    if thought_length > 20 and entity_count < 2 and iterations == 1:
+        print(f"   ► Reflection trigger: Low entity count ({entity_count}) for thought length ({thought_length})")
+        return "refine"
+    
+    # Default: conclude if nothing obvious to fix
+    return "conclude"
 
 
 # ============================================================================
