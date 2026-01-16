@@ -122,3 +122,54 @@ The AI detects three distinct intents and routes them:
 | **"What am I missing?"** | Check **Serendipity** suggestions |
 | **"Teach me this."** | Activate **Feynman Mode** |
 | **"Start my day."** | Read **Daily Briefing** |
+| **"Review what I learned."** | Use **Spaced Repetition** flashcards |
+| **"Break this down."** | **Task Decomposition** (auto-generates subtasks) |
+
+---
+
+## 6. Spaced Repetition (Memory)
+
+**Problem:** You take notes but forget them within days.
+**Solution:** The AI schedules review using the SM-2 algorithm.
+
+**How it Works:**
+1. Notes marked as "Learning" or "Resource" enter the review queue.
+2. The system calculates optimal review intervals based on your performance.
+3. You rate each card as Easy/Medium/Hard, adjusting future intervals.
+
+**API:** `GET /api/resurface` returns cards due for review.
+
+---
+
+## 7. Task Decomposition (Planning)
+
+**Problem:** Big ideas are overwhelming. You don't know where to start.
+**Solution:** The AI breaks complex tasks into actionable subtasks.
+
+**Scenario:** You type: "Build a mobile app with authentication, payments, and notifications."
+
+**AI Output:**
+```
+Parent Task: Build Mobile App
+├── Subtask 1: Implement authentication (urgency: 4)
+├── Subtask 2: Integrate payment gateway (urgency: 3)
+├── Subtask 3: Set up push notifications (urgency: 2)
+└── Subtask 4: Design onboarding flow (urgency: 2)
+```
+
+---
+
+## 8. Zettelkasten Auto-Atomization
+
+**Problem:** You paste a long article but can't find specific insights later.
+**Solution:** The AI splits long-form content into atomic, interconnected notes.
+
+**Scenario:** You paste a 1000-word article about productivity.
+
+**AI Action:**
+1. Splits into 5-7 atomic notes (each containing one concept).
+2. Links related atoms together: `(Atom A)-[:RELATED_TO]->(Atom B)`.
+3. All atoms link back to the original: `(Atom)-[:ATOMIZED_FROM]->(Original)`.
+
+**Benefit:** Your graph stays granular and searchable.
+

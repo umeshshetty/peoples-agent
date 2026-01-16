@@ -1,64 +1,120 @@
 # Technical Architecture 🏗️
 
-People's Agent uses a modern, retrieval-augmented agent architecture derived from the "Second Brain" cognitive framework.
+People's Agent uses a modern, retrieval-augmented **multi-agent architecture** derived from the "Second Brain" cognitive framework.
 
 ## System Diagram
 
 ```mermaid
 graph TD
-    User[User] -->|Input| Frontend[Frontend (Vanilla JS)]
+    User[User] -->|Input| Frontend[Frontend UI]
     Frontend -->|REST API| Server[FastAPI Server]
     
     subgraph "Agentic Core (LangGraph)"
         Server -->|Thought| Graph[State Graph]
-        Graph -->|Context| ContextLoader
-        Graph -->|Extract| Extractor
-        Graph -->|Synthesize| SynthesisAgents
+        Graph --> ContextLoader[Context Loader]
+        ContextLoader --> Extractor[Knowledge Extractor]
+        Extractor --> Reflection[Reflection Loop]
+        
+        subgraph "Cognitive Loop (Phase 1)"
+            Reflection --> Critic[Critic Agent]
+            Critic --> Refiner[Refiner Agent]
+            Refiner -.-> Reflection
+        end
+        
+        Reflection --> Enrichment[Enrichment Node]
+        
+        subgraph "Enrichment Agents (Phase 2)"
+            Enrichment --> BlockerAgent[Blocker Agent]
+            Enrichment --> SocialGraph[Social Graph Agent]
+            Enrichment --> ActionAuditor[Action Auditor]
+        end
+        
+        Enrichment --> Respond[Responder]
+        Respond --> Save[Knowledge Saver]
+        Save --> PostSave[Post-Save Hooks]
+        
+        subgraph "Structural Expansion (Phase 4)"
+            PostSave --> Serendipity[Serendipity Engine]
+            PostSave --> TaskDecomp[Task Decomposition]
+            PostSave --> Zettelkasten[Zettelkasten Agent]
+        end
     end
     
     subgraph "Memory Systems"
-        ContextLoader <-->|Semantic Search| ChromaDB[(ChromaDB Vector Store)]
-        ContextLoader <-->|Structural Query| Neo4j[(Neo4j Knowledge Graph)]
-        SynthesisAgents -->|Write Profiles| Neo4j
-        Extractor -->|Index Notes| ChromaDB
+        ContextLoader <-->|Semantic Search| ChromaDB[(ChromaDB)]
+        ContextLoader <-->|Graph Query| Neo4j[(Neo4j)]
+        Save -->|Persist| Neo4j
+        Save -->|Index| ChromaDB
     end
     
     subgraph "Intelligence"
-        Graph <-->|Inference| Ollama[Ollama (Llama 3.2)]
+        Graph <-->|LLM| Ollama[Ollama Llama 3.2]
     end
 ```
 
-## Key Components
+## Agent Pipeline
 
-### 1. Hybrid Memory System
-We typically see two types of RAG (Retrieval Augmented Generation):
-- **Vector RAG**: Good for finding "similar" text. (Tool: **ChromaDB**)
-- **Graph RAG**: Good for traversing relationships (A->B->C). (Tool: **Neo4j**)
+The thought processing pipeline consists of multiple specialized agents:
 
-People's Agent uses **both**. 
-- When you ask "Who is John?", we query the Graph for the `Person` node.
-- When you ask "What do I know about leadership?", we query the Vector DB for semantic matches.
+### Phase 1: Cognitive Loop
+| Agent | File | Purpose |
+|-------|------|---------|
+| **Context Loader** | `graph.py` | Semantic pre-fetch from ChromaDB + Neo4j |
+| **Extractor** | `extraction_agents.py` | Extract entities, categories, summary |
+| **Critic** | `extraction_agents.py` | Review extraction for missed connections |
+| **Refiner** | `extraction_agents.py` | Improve extraction based on critique |
 
-### 2. LangGraph Workflow
-The brain is modeled as a state machine using **LangGraph**:
-1. **Load Context**: Retrieve relevant memories.
-2. **Classify**: Is this a task? A question? A project update?
-3. **Decompose**: Split multi-intent inputs.
-4. **Respond**: Generate a helpful answer.
-5. **Synthesize**: (Background) Update profiles, extracting tasks, finding connections.
+### Phase 2: Enrichment Agents
+| Agent | File | Purpose |
+|-------|------|---------|
+| **Blocker Agent** | `enrichment_agents.py` | Detect risks, update project status |
+| **Social Graph** | `enrichment_agents.py` | Match topics to people, suggest connections |
+| **Action Auditor** | `enrichment_agents.py` | Extract implied tasks with urgency scores |
 
-### 3. Synthesis Pipeline
-Running in the background (asynchronously), specialized agents organize data:
-- `PersonProfiler`: Updates `PersonProfile` nodes in Neo4j.
-- `ProjectSynthesizer`: Updates `ProjectProfile` nodes.
-- `SerendipityEngine`: Scans for structural holes and unexpected connections.
+### Phase 3: Recursive Memory
+| Agent | File | Purpose |
+|-------|------|---------|
+| **Spaced Repetition** | `knowledge_graph.py` | SM-2 algorithm for memory reinforcement |
+| **Resurface Queue** | `server.py` | API endpoint for review cards |
+
+### Phase 4: Structural Expansion
+| Agent | File | Purpose |
+|-------|------|---------|
+| **Serendipity Engine** | `serendipity_agent.py` | Find structural holes, generate nudges |
+| **Task Decomposition** | `task_decomposition_agent.py` | Parent → Child task hierarchy |
+| **Zettelkasten** | `zettelkasten_agent.py` | Auto-atomize long-form content |
+
+## Hybrid Memory System
+
+| Type | Tool | Use Case |
+|------|------|----------|
+| **Vector RAG** | ChromaDB | Semantic similarity ("things like X") |
+| **Graph RAG** | Neo4j | Relationship traversal (A→B→C) |
 
 ## Data Model
 
 ### Neo4j Schema
-- **Nodes**: `Thought`, `Entity` (Person, Project, Tool, etc.), `Category`, `Meeting`
-- **Edges**: `MENTIONS`, `BELONGS_TO`, `HAS_PROFILE`, `HAS_MEETING`
+```
+(:Thought)-[:MENTIONS]->(:Entity)
+(:Thought)-[:BELONGS_TO]->(:Category)
+(:Thought)-[:IMPLIES]->(:ActionItem)
+(:Thought)-[:ATOMIZED_FROM]->(:Thought)
+(:Task)-[:HAS_SUBTASK]->(:Task)
+(:Entity)-[:HAS_PROFILE]->(:PersonProfile/:ProjectProfile)
+```
 
-### Vector Schema
-- **Document**: The raw note content.
-- **Metadata**: Timestamp, extracted entities, tags.
+### Key Node Types
+- `Thought`: Raw note with content, summary, timestamp
+- `Entity`: Person, Project, Topic, Tool, etc.
+- `ActionItem`: Extracted task with urgency score
+- `Task`: Hierarchical task with parent/child relationships
+
+## API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/think` | POST | Process new thought |
+| `/api/brain/insights` | GET | Dashboard data |
+| `/api/resurface` | GET | Spaced repetition queue |
+| `/api/serendipity` | GET | Structural hole nudges |
+| `/api/radar` | GET | Project health metrics |

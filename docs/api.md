@@ -50,3 +50,27 @@ People's Agent exposes a RESTful API for all its capabilities.
 **POST** `/api/brain/atomize`
 - **Body**: `{"content": "string"}`
 - **Description**: Split a long text into atomic notes.
+
+---
+
+## Memory & Learning Endpoints
+
+### Smart Resurface (Spaced Repetition)
+**GET** `/api/resurface`
+- **Query**: `limit` (int, default 5)
+- **Description**: Get thoughts due for review based on SM-2 algorithm.
+
+### Mark as Reviewed
+**POST** `/api/thoughts/{thought_id}/review`
+- **Body**: `{"difficulty": "easy|medium|hard"}`
+- **Description**: Mark a thought as reviewed, updating its spaced repetition stats.
+
+### Serendipity Nudges
+**GET** `/api/serendipity`
+- **Query**: `entities` (comma-separated entity names)
+- **Description**: Find structural holes and generate connection nudges.
+
+### Project Radar
+**GET** `/api/radar`
+- **Description**: Get project health metrics (velocity, maturity, impact).
+
