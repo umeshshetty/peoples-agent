@@ -10,7 +10,7 @@ import json
 import re
 
 # LLM for generating human-readable nudges
-llm = ChatOllama(model="llama3.2:latest", temperature=0.7, base_url="http://localhost:11434")
+llm = ChatOllama(model="llama3.3:70b", temperature=0.7, base_url="http://localhost:11434")
 
 
 def find_structural_holes(knowledge_graph, new_thought_entities: List[str], limit: int = 3) -> List[Dict]:

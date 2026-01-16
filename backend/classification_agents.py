@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timedelta
 
 # Configuration
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "llama3.2:latest")
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "llama3.3:70b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
