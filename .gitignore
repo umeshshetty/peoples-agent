@@ -21,3 +21,4 @@ Thumbs.db
 
 # Local data (user-specific)
 ~/.peoples_agent/
+.env
