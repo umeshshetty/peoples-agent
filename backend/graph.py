@@ -41,6 +41,16 @@ except ImportError as e:
     COGNITIVE_MODE = False
     print(f"⚠ Cognitive Memory not available: {e}")
 
+# User Profile / Context imports
+try:
+    from user_context import generate_user_context_prompt, get_user_name, get_project_names
+    USER_PROFILE_AVAILABLE = True
+except ImportError:
+    USER_PROFILE_AVAILABLE = False
+    def generate_user_context_prompt(): return ""
+    def get_user_name(): return "User"
+    def get_project_names(): return []
+
 # Configuration
 MODEL_NAME = os.getenv("OLLAMA_MODEL", "glm4")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -366,34 +376,46 @@ async def assistant_responder(state: AgentState) -> AgentState:
     
     full_context = "\n\n".join(context_parts) if context_parts else "No previous context available."
     
-    # Different prompts for questions vs notes - NOW SOCRATIC
+    # Get user profile context for personalized responses
+    user_context = generate_user_context_prompt() if USER_PROFILE_AVAILABLE else ""
+    user_name = get_user_name() if USER_PROFILE_AVAILABLE else "the user"
+    
+    # Different prompts for questions vs notes - NOW SOCRATIC with USER CONTEXT
     if state.get('is_question'):
-        system_prompt = f"""You are a Socratic thinking partner with access to the user's notes and history.
+        system_prompt = f"""You are a Socratic thinking partner serving {user_name}.
+
+{user_context}
+
+---
 The user is asking a question. Your job is to:
 1. Answer using their stored notes if relevant (cite them specifically)
-2. Challenge assumptions in their question - ask "what makes you think X?"
-3. Identify potential blind spots or risks they might not see
-4. Connect their question to insights from unrelated notes if applicable
+2. Challenge assumptions - ask "what makes you think X?"
+3. Identify blind spots or risks given their projects (SREBot, HEAL, Eagle Eye)
+4. Connect to insights from unrelated notes if applicable
 5. If you see contradictions with past statements, surface them helpfully
 
 Context available:
 {full_context}
 
-Be helpful but NOT passive. Don't just answer - make them think deeper.
-If something seems risky or problematic, say so clearly but diplomatically."""
+Be helpful but NOT passive. Speak as a technical peer, not a generic assistant.
+If something seems risky for their network ops role, say so clearly."""
     else:
-        system_prompt = f"""You are a Socratic co-cognitive partner, NOT a passive note-taker.
+        system_prompt = f"""You are a Socratic co-cognitive partner for {user_name}.
+
+{user_context}
+
+---
 The user is sharing a thought. Your job is to:
-1. CHALLENGE: If this is a plan, identify ONE potential risk from their history
-2. CONNECT: Link to surprising connections from their past notes
-3. CLARIFY: Ask ONE follow-up question that forces them to define terms more clearly
-4. SURFACE: If this contradicts something they said before, note it helpfully
+1. CHALLENGE: Identify ONE risk, especially related to their active projects
+2. CONNECT: Link to surprising connections from past notes or their stated goals
+3. CLARIFY: Ask ONE follow-up that forces clearer definition
+4. SURFACE: Note any contradiction with their stated priorities
 
 Context available:
 {full_context}
 
-Do NOT just agree or acknowledge. Add value by making them think.
-Keep response to 2-4 sentences but make them count. Be a thinking partner, not a stenographer."""
+Speak as a Network SRE peer. Use strategic + technical language.
+2-4 sentences. Be a thinking partner, not a stenographer."""
 
     messages = [
         SystemMessage(content=system_prompt),

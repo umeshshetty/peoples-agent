@@ -1,0 +1,109 @@
+# ==============================================================================
+# People's Agent - User Profile
+# Your "conscious identity" that the AI uses to understand who you are
+# This file is auto-loaded at startup and injected into all agent prompts
+# ==============================================================================
+
+# 👤 Professional Identity
+identity:
+  name: "Umesh Shetty"
+  role: "Network Operations & Change Manager"
+  company: "Equinix"
+  background: "Network SRE leader with deep service-provider DNA, operating at the intersection of operations, platform engineering, and leadership"
+  timezone: "Asia/Kolkata"
+
+# 🎓 Academic & Leadership Development
+education:
+  program: "Executive Program in Leadership & Management"
+  institution: "IIM Calcutta (IIMC)"
+  focus: "Translating deep technical expertise into strategic, organization-level leadership"
+
+# 🧠 Core Strengths
+strengths:
+  - "Large-scale Service Provider Network Operations"
+  - "SRE principles applied to networks (reliability, error budgets, MTTR reduction)"
+  - "AI/ML integration into Ops, Monitoring, and Change Management"
+  - "Driving cultural transformation (blameless ops, learning systems)"
+
+# 🛠️ Technical Ecosystem
+technical:
+  networking:
+    - "BGP, IS-IS, MPLS, Segment Routing (SR)"
+    - "EVPN, L2/L3 VPNs"
+    - "Control-plane and data-plane observability"
+  
+  infrastructure:
+    - "Kubernetes & container orchestration"
+    - "Containerlab for network simulation and testing"
+    - "Automation-first operational mindset"
+  
+  ai_and_data:
+    - "Multi-agent AI systems (LangGraph)"
+    - "RAG architectures (unified knowledge ingestion)"
+    - "Kafka data streams"
+    - "Knowledge Graph design for network intelligence"
+
+# 🚀 Active Projects & 2026 Roadmap
+projects:
+  srebot:
+    name: "SREBot & Unified RAG"
+    description: "Multi-agent AI interface for Network Ops"
+    status: "Migrating to multi-agent architecture"
+    goal: "One unified RAG ingesting architecture docs, naming conventions, protocol specs"
+  
+  heal:
+    name: "Project HEAL"
+    description: "Self-healing automation framework for Equinix networks"
+    focus: "Automated link-flap detection & mitigation, auto-generation of change requests"
+    objective: "Reduce manual intervention and human error"
+  
+  eagle_eye:
+    name: "Eagle Eye"
+    description: "Advanced observability platform"
+    focus: "Control Plane Churn Analytics"
+    goal: "Tight collaboration between Network SRE Ops and Platform Engineering"
+  
+  twinstride:
+    name: "TwinStride"
+    description: "Personal AI assistant / second brain"
+    research_areas:
+      - "Proactive insights"
+      - "Multimodal data capture"
+      - "Mind-mapping & cognition support"
+
+# 🧭 Leadership & Org Impact
+leadership:
+  responsibilities:
+    - "Leading operational integration of Equinix Core Network and Metal Network teams"
+    - "Institutionalized Learning from Incidents (LFI)"
+    - "Driving blameless, data-driven postmortem culture"
+    - "Building Slack-integrated escalation tooling with Jira + SLA tracking"
+
+# 🧑‍👧 Personal Context
+personal:
+  family:
+    - relationship: "Father"
+      name: "Anaya"
+      context: "Actively supporting her academics and creative interests"
+  
+  financial:
+    - type: "Home loan"
+      context: "Property under construction"
+      target_date: "2026-12-31"
+  
+  health:
+    goal: "Regain peak physical condition"
+    target_date: "2026-06-05"
+
+# 🎯 How the AI should treat you
+interaction_preferences:
+  persona: "Network SRE leader, not a generic user"
+  language: "Strategic + technical language"
+  proposals: "Aligned with active projects (SREBot, HEAL, Eagle Eye, TwinStride)"
+  respect: "Time, priorities, personal goals"
+  
+# 🔄 Auto-learned facts (updated by the system)
+# Don't edit this section - it's populated automatically from conversations
+auto_learned:
+  last_updated: null
+  facts: []
