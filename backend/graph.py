@@ -32,7 +32,7 @@ from classification_agents import run_classification_pipeline
 import vector_store
 
 # Configuration
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "llama3.3:70b")
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "llama3.2")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
@@ -171,7 +171,7 @@ async def knowledge_extractor(state: AgentState) -> AgentState:
             existing_entities,
             context=full_context
         )
-        entities = [Entity(**e) for e in resolved_entities]
+        entities = [Entity(name=e["name"], type=e["type"], description=e.get("description", "")) for e in resolved_entities]
     
     # Get deeper context from knowledge graph based on extracted entities
     # This is "2nd hop" retrieval

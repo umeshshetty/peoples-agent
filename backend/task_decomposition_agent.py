@@ -11,7 +11,7 @@ import re
 import uuid
 
 
-llm = ChatOllama(model="llama3.3:70b", temperature=0.3, base_url="http://localhost:11434")
+llm = ChatOllama(model="llama3.2", temperature=0.3, base_url="http://localhost:11434")
 
 
 DECOMPOSITION_PROMPT = """You are a project manager expert. Analyze this task/idea and break it down into subtasks.

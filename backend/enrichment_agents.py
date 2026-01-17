@@ -6,7 +6,7 @@ import traceback
 from typing import List, Dict, Any
 
 # Initialize Ollama
-llm = ChatOllama(model="llama3.3:70b", temperature=0.0, base_url="http://localhost:11434")
+llm = ChatOllama(model="llama3.2", temperature=0.0, base_url="http://localhost:11434")
 
 # ============================================================================
 # 1. Latent Intent & Blocker Agent
