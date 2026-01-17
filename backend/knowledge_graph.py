@@ -525,7 +525,7 @@ class Neo4jKnowledgeGraph:
                             insights["tasks"]["items"].append(thought_data)
                         elif cat_lower in ["ideas", "brainstorm"]:
                             insights["ideas"]["items"].append(thought_data)
-                        elif cat_lower in ["learning", "questions"]:
+                        elif cat_lower in ["learning"]:
                             insights["learning"]["items"].append(thought_data)
                         elif cat_lower in ["personal", "reflection"]:
                             insights["reflections"]["items"].append(thought_data)
