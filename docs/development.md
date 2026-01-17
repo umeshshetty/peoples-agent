@@ -12,7 +12,7 @@ The system is composed of three main layers:
 3.  **Intelligence Layer**:
     *   **Orchestrator**: LangGraph (`graph.py`). Manages state and decision tools.
     *   **Memory**: Neo4j (Graph) + ChromaDB (Vector).
-    *   **Inference**: Ollama (Llama 3.2).
+    *   **Inference**: Ollama (Llama 3.3 70B).
 
 ---
 
@@ -47,11 +47,11 @@ ChromaDB runs in-process (embedded). No separate server is needed.
 1.  **Install Ollama**: [ollama.com](https://ollama.com)
 2.  **Pull Model**:
     ```bash
-    ollama pull llama3.2
+    ollama pull llama3.3:70b
     ```
 3.  **Verify**:
     ```bash
-    curl http://localhost:11434/api/generate -d '{"model": "llama3.2", "prompt": "Hi"}'
+    curl http://localhost:11434/api/generate -d '{"model": "llama3.3:70b", "prompt": "Hi"}'
     ```
 
 ---

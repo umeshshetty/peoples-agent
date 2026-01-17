@@ -27,7 +27,7 @@
 | Component | Technology |
 |-----------|------------|
 | Backend | FastAPI + LangGraph |
-| LLM | Ollama (llama3.2) |
+| LLM | Ollama (llama3.3:70b) |
 | Graph DB | Neo4j |
 | Vector DB | ChromaDB |
 | Frontend | Vanilla JS |

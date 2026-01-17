@@ -96,7 +96,7 @@ The magic lies in the **Hybrid Memory Architecture**.
 *   **Function**: Stores explicit facts and connections. `(Person: John)-[WORKS_ON]->(Project: Alpha)`.
 *   **Power**: Allows multi-hop reasoning. "Who works on Project Alpha?" -> The system hops from the Project node to find all connected Person nodes.
 
-### 3. Large Language Model (Llama 3.2 via Ollama)
+### 3. Large Language Model (Llama 3.3 70B via Ollama)
 *   **Role**: "The Processor".
 *   **Function**: It acts as the CPU. It takes the rough retrieval from the Vector DB and the structured facts from the Graph and fundamentally *understands* them to generate natural language responses.
 

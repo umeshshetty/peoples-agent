@@ -48,7 +48,7 @@ graph TD
     end
     
     subgraph "Intelligence"
-        Graph <-->|LLM| Ollama[Ollama Llama 3.2]
+        Graph <-->|LLM| Ollama[Ollama Llama 3.3 70B]
     end
 ```
 
