@@ -35,12 +35,13 @@ import vector_store
 try:
     from langfuse.callback import CallbackHandler
     langfuse_handler = CallbackHandler(
-        public_key="pk-lf-834f7dbd-b619-44cf-8146-d100f79f6877",
-        secret_key="sk-lf-4c13ee8d-42ad-4c7a-bf77-f17b98d2c0c6",
-        host="http://localhost:3000"
+        public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+        secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+        host=os.getenv("LANGFUSE_HOST", "http://localhost:3000")
     )
-    LANGFUSE_ENABLED = True
-    print("✓ Langfuse tracing enabled")
+    LANGFUSE_ENABLED = bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
+    if LANGFUSE_ENABLED:
+        print("✓ Langfuse tracing enabled")
 except Exception as e:
     langfuse_handler = None
     LANGFUSE_ENABLED = False
