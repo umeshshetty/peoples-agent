@@ -12,7 +12,7 @@ import json
 import re
 
 # Configuration
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "llama3.2")
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "glm4")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 

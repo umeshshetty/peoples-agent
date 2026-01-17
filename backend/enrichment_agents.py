@@ -1,3 +1,12 @@
+"""
+People's Agent - Enrichment Agents
+Active enrichment of thoughts with risk analysis, social connections, and actions.
+
+Hybrid Model Approach:
+- GLM4 (System 1): Fast extraction and initial analysis
+- Claude (System 2): Consistency auditing and emotional analysis
+"""
+
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_ollama import ChatOllama
 import json
@@ -5,8 +14,15 @@ import re
 import traceback
 from typing import List, Dict, Any
 
-# Initialize Ollama
-llm = ChatOllama(model="llama3.2", temperature=0.0, base_url="http://localhost:11434")
+# Import Claude for System 2 deep analysis
+try:
+    from claude_client import claude_check_consistency, claude_extract_latent_anxiety
+    CLAUDE_AVAILABLE = True
+except ImportError:
+    CLAUDE_AVAILABLE = False
+
+# GLM4 for fast System 1 tasks
+llm = ChatOllama(model="glm4", temperature=0.0, base_url="http://localhost:11434")
 
 # ============================================================================
 # 1. Latent Intent & Blocker Agent
@@ -149,3 +165,85 @@ def audit_actionability(thought_content: str) -> List[Dict]:
     except Exception as e:
         print(f"Error in action auditor: {e}")
         return []
+
+
+# ============================================================================
+# 4. Consistency Agent (System 2 - Claude)
+# ============================================================================
+
+async def check_consistency(new_thought: str, previous_context: str) -> Dict[str, Any]:
+    """
+    Agent 4: Check if new thought contradicts previous commitments or stated goals.
+    Uses Claude for deep analysis of logical consistency.
+    """
+    if not CLAUDE_AVAILABLE:
+        return {"has_contradiction": False, "analysis": "Claude not available for consistency check"}
+    
+    try:
+        result = await claude_check_consistency(new_thought, previous_context)
+        return result
+    except Exception as e:
+        print(f"Error in consistency check: {e}")
+        return {"has_contradiction": False, "analysis": str(e)}
+
+
+# ============================================================================
+# 5. Latent Anxiety Extractor (System 2 - Claude)
+# ============================================================================
+
+async def extract_latent_anxiety(thought_content: str) -> Dict[str, Any]:
+    """
+    Agent 5: Analyze the emotional undertones of a thought.
+    Detect stress, procrastination, or hidden concerns.
+    Uses Claude for psychological insight.
+    """
+    if not CLAUDE_AVAILABLE:
+        return {"emotional_analysis": "Claude not available for emotional analysis"}
+    
+    try:
+        result = await claude_extract_latent_anxiety(thought_content)
+        return result
+    except Exception as e:
+        print(f"Error in latent anxiety extraction: {e}")
+        return {"emotional_analysis": str(e)}
+
+
+# ============================================================================
+# Combined Enrichment Pipeline
+# ============================================================================
+
+async def run_full_enrichment(
+    thought_content: str,
+    extracted_entities: List[Dict],
+    active_projects: List[str],
+    people_profiles: List[Dict],
+    previous_context: str = ""
+) -> Dict[str, Any]:
+    """
+    Run all enrichment agents on a thought.
+    - GLM4 for fast initial analysis (System 1)
+    - Claude for deep analysis when available (System 2)
+    """
+    results = {
+        "intent_and_risk": {},
+        "social_nudges": [],
+        "actions": [],
+        "consistency": {},
+        "emotional_analysis": {}
+    }
+    
+    # System 1 - Fast (GLM4)
+    extracted_topics = [e["name"] for e in extracted_entities 
+                       if e.get("type") in ["Topic", "Concept", "Technology", "Interest"]]
+    
+    results["intent_and_risk"] = analyze_intent_and_risk(thought_content, active_projects)
+    results["social_nudges"] = find_social_connections(extracted_topics, people_profiles)
+    results["actions"] = audit_actionability(thought_content)
+    
+    # System 2 - Deep (Claude) - only if significant thought
+    if len(thought_content) > 50 and CLAUDE_AVAILABLE:
+        results["consistency"] = await check_consistency(thought_content, previous_context)
+        results["emotional_analysis"] = await extract_latent_anxiety(thought_content)
+    
+    return results
+

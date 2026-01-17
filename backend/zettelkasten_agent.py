@@ -12,7 +12,7 @@ import uuid
 
 
 # LLM for atomization
-llm = ChatOllama(model="llama3.2", temperature=0.3, base_url="http://localhost:11434")
+llm = ChatOllama(model="glm4", temperature=0.3, base_url="http://localhost:11434")
 
 
 ATOMIZATION_PROMPT = """You are a Zettelkasten expert. Your job is to split long-form content into ATOMIC notes.

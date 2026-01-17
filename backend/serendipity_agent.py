@@ -1,6 +1,10 @@
 """
 People's Agent - Serendipity Engine
 Detects "Structural Holes" in the knowledge graph and generates serendipitous nudges.
+
+Hybrid Model Approach:
+- GLM4 (System 1): Quick nudge generation
+- Claude (System 2): Deep remote analogies across domains
 """
 
 from typing import List, Dict, Any
@@ -9,8 +13,15 @@ from langchain_core.messages import SystemMessage, HumanMessage
 import json
 import re
 
-# LLM for generating human-readable nudges
-llm = ChatOllama(model="llama3.2", temperature=0.7, base_url="http://localhost:11434")
+# Import Claude for System 2 deep serendipity
+try:
+    from claude_client import claude_find_serendipity, get_claude_llm
+    CLAUDE_AVAILABLE = True
+except ImportError:
+    CLAUDE_AVAILABLE = False
+
+# GLM4 for quick System 1 nudges
+llm = ChatOllama(model="glm4", temperature=0.7, base_url="http://localhost:11434")
 
 
 def find_structural_holes(knowledge_graph, new_thought_entities: List[str], limit: int = 3) -> List[Dict]:
@@ -116,3 +127,37 @@ def get_serendipity_nudges(knowledge_graph, new_thought_entities: List[str]) -> 
         })
     
     return nudges
+
+
+async def get_deep_serendipity_insights(knowledge_graph, focus_topic: str, limit: int = 3) -> List[Dict]:
+    """
+    Use Claude (System 2) to find deep, remote analogies across domains.
+    This is the "aha moment" generator - finding connections that surprise.
+    """
+    if not CLAUDE_AVAILABLE:
+        # Fallback to basic serendipity
+        return get_serendipity_nudges(knowledge_graph, [focus_topic])
+    
+    try:
+        # Get distant notes from different clusters
+        with knowledge_graph.driver.session() as session:
+            result = session.run("""
+                MATCH (t:Thought)
+                WHERE NOT toLower(t.content) CONTAINS toLower($focus)
+                RETURN t.content as content, t.summary as summary
+                ORDER BY rand()
+                LIMIT 8
+            """, {"focus": focus_topic})
+            
+            distant_notes = [f"{r['summary']}: {r['content'][:200]}" for r in result]
+        
+        if not distant_notes:
+            return []
+        
+        # Use Claude for deep analysis
+        insights = await claude_find_serendipity(focus_topic, distant_notes)
+        return insights
+        
+    except Exception as e:
+        print(f"Error in deep serendipity: {e}")
+        return get_serendipity_nudges(knowledge_graph, [focus_topic])

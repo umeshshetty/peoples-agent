@@ -2,6 +2,10 @@
 People's Agent - Synthesis Agents
 Background agents that process raw thoughts into organized profiles.
 These run after each thought to synthesize intelligence.
+
+Hybrid Model Approach:
+- GLM4 (System 1): Fast extraction and initial processing
+- Claude (System 2): Deep synthesis and insightful analysis
 """
 
 from typing import List, Dict, Optional
@@ -11,8 +15,16 @@ import os
 import json
 import re
 
+# Import Claude for System 2 deep synthesis
+try:
+    from claude_client import claude_synthesize_person, get_claude_llm
+    CLAUDE_AVAILABLE = True
+except ImportError:
+    CLAUDE_AVAILABLE = False
+    print("⚠ Claude client not available, using GLM4 only")
+
 # Configuration
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "llama3.2")
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "glm4")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
