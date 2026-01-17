@@ -1,14 +1,26 @@
 """
 People's Agent - Vector Store Module
 Provides semantic search using ChromaDB and sentence transformers.
-Enables "find similar notes" and context-aware retrieval.
+Enables "find similar notes"
+Vector Store for storing and retrieving thought embeddings using ChromaDB.
 """
 
 import chromadb
 from chromadb.config import Settings
+import os
 from typing import List, Dict, Optional
 from pathlib import Path
-import os
+
+# Langfuse observability
+try:
+    from langfuse.decorators import observe
+    LANGFUSE_ENABLED = True
+except ImportError:
+    # No-op decorator if langfuse not available
+    def observe(func):
+        return func
+    LANGFUSE_ENABLED = False
+
 
 # Configuration
 DATA_DIR = Path(os.getenv("PEOPLES_AGENT_DATA", Path.home() / ".peoples_agent"))
@@ -83,6 +95,7 @@ def add_thought(thought_id: str, content: str, metadata: Dict = None) -> None:
         print(f"⚠ Error adding thought to vector store: {e}")
 
 
+@observe()
 def semantic_search(query: str, limit: int = 5) -> List[Dict]:
     """
     Find thoughts semantically similar to the query.

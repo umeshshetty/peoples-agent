@@ -31,6 +31,21 @@ from synthesis_agents import run_synthesis_pipeline
 from classification_agents import run_classification_pipeline
 import vector_store
 
+# Langfuse Observability
+try:
+    from langfuse.callback import CallbackHandler
+    langfuse_handler = CallbackHandler(
+        public_key="pk-lf-834f7dbd-b619-44cf-8146-d100f79f6877",
+        secret_key="sk-lf-4c13ee8d-42ad-4c7a-bf77-f17b98d2c0c6",
+        host="http://localhost:3000"
+    )
+    LANGFUSE_ENABLED = True
+    print("✓ Langfuse tracing enabled")
+except Exception as e:
+    langfuse_handler = None
+    LANGFUSE_ENABLED = False
+    print(f"⚠ Langfuse not available: {e}")
+
 # Cognitive Memory imports
 try:
     from cognitive_memory import CognitiveEntity, EpisodicMemory, Narrative, calculate_salience
@@ -120,12 +135,18 @@ class AgentState(TypedDict):
 # ============================================================================
 
 def get_llm():
-    """Get the Ollama LLM instance."""
-    return ChatOllama(
+    """Get the Ollama LLM instance with optional Langfuse tracing."""
+    llm = ChatOllama(
         model=MODEL_NAME,
         base_url=OLLAMA_BASE_URL,
         temperature=0.7,
     )
+    
+    # Add Langfuse callback if enabled
+    if LANGFUSE_ENABLED and langfuse_handler:
+        return llm.with_config({"callbacks": [langfuse_handler]})
+    
+    return llm
 
 
 # ============================================================================
@@ -380,14 +401,19 @@ async def assistant_responder(state: AgentState) -> AgentState:
     user_context = generate_user_context_prompt() if USER_PROFILE_AVAILABLE else ""
     user_name = get_user_name() if USER_PROFILE_AVAILABLE else "the user"
     
-    # Different prompts for questions vs notes - NOW SOCRATIC with USER CONTEXT
+    # Adaptive prompting based on salience
+    salience = state.get('salience_score', 0.5)
+    
+    # Different prompts for questions vs notes
     if state.get('is_question'):
-        system_prompt = f"""You are a Socratic thinking partner serving {user_name}.
+        # For questions, always be helpful but vary depth
+        if salience > 0.6:  # High-importance question
+            system_prompt = f"""You are a Socratic thinking partner serving {user_name}.
 
 {user_context}
 
 ---
-The user is asking a question. Your job is to:
+The user is asking an important question. Your job is to:
 1. Answer using their stored notes if relevant (cite them specifically)
 2. Challenge assumptions - ask "what makes you think X?"
 3. Identify blind spots or risks given their projects (SREBot, HEAL, Eagle Eye)
@@ -399,13 +425,26 @@ Context available:
 
 Be helpful but NOT passive. Speak as a technical peer, not a generic assistant.
 If something seems risky for their network ops role, say so clearly."""
+        else:  # Lower-importance question
+            system_prompt = f"""You are a helpful assistant for {user_name}.
+
+{user_context}
+
+The user is asking a question. Answer it directly and concisely using context from their notes if available.
+
+Context available:
+{full_context}
+
+Be brief - 1-3 sentences. Only ask follow-up questions if critical information is missing."""
     else:
-        system_prompt = f"""You are a Socratic co-cognitive partner for {user_name}.
+        # For notes/thoughts, vary intensity based on salience AND complexity
+        if salience > 0.7:  # High-complexity strategic thought
+            system_prompt = f"""You are a Socratic co-cognitive partner for {user_name}.
 
 {user_context}
 
 ---
-The user is sharing a thought. Your job is to:
+The user is sharing an important thought. Your job is to:
 1. CHALLENGE: Identify ONE risk, especially related to their active projects
 2. CONNECT: Link to surprising connections from past notes or their stated goals
 3. CLARIFY: Ask ONE follow-up that forces clearer definition
@@ -416,7 +455,32 @@ Context available:
 
 Speak as a Network SRE peer. Use strategic + technical language.
 2-4 sentences. Be a thinking partner, not a stenographer."""
+        elif salience > 0.4:  # Medium complexity
+            system_prompt = f"""You are a thoughtful partner for {user_name}.
 
+{user_context}
+
+The user is sharing a thought. Acknowledge it and:
+- If it relates to their projects or goals, make one helpful connection
+- If you spot a potential issue, mention it briefly
+- Otherwise, confirm understanding and move on
+
+Context available:
+{full_context}
+
+Keep it to 2-3 sentences."""
+        else:  # Low complexity note
+            system_prompt = f"""You are a responsive assistant for {user_name}.
+
+{user_context}
+
+The user is sharing a note. Acknowledge it briefly and confirm you've captured it.
+
+Context available:
+{full_context}
+
+One sentence is enough."""
+    
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=state['thought'])
@@ -566,18 +630,64 @@ If there's conversation history, acknowledge the ongoing relationship.
     }
 
 
+async def utility_responder(state: AgentState) -> AgentState:
+    """Handles utility requests: reminders, scheduling, quick actions."""
+    llm = get_llm()
+    
+    user_name = get_user_name() if USER_PROFILE_AVAILABLE else "User"
+    
+    # Direct, helpful prompt for administrative tasks
+    system_prompt = f"""You are a responsive assistant for {user_name}.
+
+The user needs help with an administrative task.
+
+Your job:
+1. Confirm what you understood
+2. Acknowledge the action (even if you can't execute it directly)
+3. Be brief and move on
+
+ONLY mention risks if truly critical (data loss, security, conflicts).
+Do NOT overthink simple requests.
+Do NOT ask follow-up questions unless absolutely necessary.
+
+Respond in 1-2 sentences maximum."""
+    
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=state['thought'])
+    ]
+    
+    response = await llm.ainvoke(messages)
+    
+    return {
+        **state,
+        "analysis": "Utility",
+        "insights": "",
+        "response": response.content,
+        "stage": "responded"
+    }
+
+
 # ============================================================================
 # Routing
 # ============================================================================
 
-def should_use_full_pipeline(state: AgentState) -> Literal["full_pipeline", "simple"]:
-    """Decide whether to use full processing or simple response."""
-    thought = state['thought'].lower().strip()
-    simple_patterns = ['hi', 'hello', 'hey', 'thanks', 'thank you', 'ok', 'okay', 'bye', 'goodbye']
+def should_use_full_pipeline(state: AgentState) -> Literal["full_pipeline", "utility", "simple"]:
+    """Decide whether to use full processing, utility mode, or simple response."""
+    from intent_classifier import classify_intent
     
-    if len(thought) < 15 or thought in simple_patterns:
+    thought = state['thought'].lower().strip()
+    salience = state.get('salience_score', 0.5)
+    
+    # Use intent classifier
+    intent = classify_intent(state['thought'], salience)
+    
+    if intent == "simple":
         return "simple"
-    return "full_pipeline"
+    elif intent == "utility":
+        return "utility" 
+    else:
+        return "full_pipeline"
 
 
 def should_continue_reflection(state: AgentState) -> Literal["refine", "conclude"]:
@@ -643,16 +753,18 @@ def build_graph() -> StateGraph:
     graph.add_node("save", knowledge_saver)
     graph.add_node("synthesize", synthesis_node)
     graph.add_node("simple", simple_responder)
+    graph.add_node("utility", utility_responder)     # NEW: Utility mode
     
     # Define flow
     graph.add_edge(START, "load_context")
     
-    # Route based on complexity
+    # Route based on complexity/intent
     graph.add_conditional_edges(
         "load_context",
         should_use_full_pipeline,
         {
             "full_pipeline": "extract",
+            "utility": "utility",
             "simple": "simple"
         }
     )
@@ -683,6 +795,9 @@ def build_graph() -> StateGraph:
     
     # Simple path
     graph.add_edge("simple", "save")
+    
+    # Utility path - still save but skip full pipeline
+    graph.add_edge("utility", "save")
     
     return graph.compile()
 

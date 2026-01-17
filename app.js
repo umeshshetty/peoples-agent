@@ -124,7 +124,7 @@ async function handleSubmit() {
     };
 
     // Add to thoughts array and render immediately
-    thoughts.unshift(thought);
+    thoughts.push(thought);  // Add at the end (bottom) not beginning
     saveThoughts();
     renderThoughts();
 

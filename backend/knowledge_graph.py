@@ -5,10 +5,19 @@ Stores all thoughts, entities, and relationships in Neo4j graph database.
 
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import json
 from pathlib import Path
+
+# Langfuse observability
+try:
+    from langfuse.decorators import observe
+    LANGFUSE_ENABLED = True
+except ImportError:
+    def observe(func):
+        return func
+    LANGFUSE_ENABLED = False
 
 # Neo4j imports
 try:
@@ -201,8 +210,9 @@ class Neo4jKnowledgeGraph:
     # Core CRUD Operations
     # ========================================================================
     
-    def add_thought(self, thought: ThoughtNode) -> None:
-        """Add a thought with its entities and categories to Neo4j."""
+    @observe()
+    def add_thought(self, thought: ThoughtNode) -> bool:
+        """Add a new thought to the knowledge graph."""
         with self.driver.session() as session:
             # Create thought node
             session.run("""
@@ -294,6 +304,34 @@ class Neo4jKnowledgeGraph:
     # ========================================================================
     # Search and Retrieval
     # ========================================================================
+    
+    @observe()
+    def get_relevant_context(self, text: str, limit: int = 3) -> str:
+        """
+        Find relevant previous thoughts/notes based on text similarity.
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (t:Thought)
+                WHERE toLower(t.content) CONTAINS toLower($query)
+                   OR toLower(t.summary) CONTAINS toLower($query)
+                OPTIONAL MATCH (t)-[:MENTIONS]->(e:Entity)
+                OPTIONAL MATCH (t)-[:BELONGS_TO]->(c:Category)
+                WITH t, collect(DISTINCT {name: e.name, type: e.type, description: e.description}) as entities,
+                     collect(DISTINCT c.name) as categories
+                ORDER BY t.timestamp DESC
+                LIMIT $limit
+                RETURN t, entities, categories
+            """, {"query": text, "limit": limit})
+            
+            context_thoughts = []
+            for record in result:
+                t = record["t"]
+                context_thoughts.append(f"- {t['summary'] or t['content'][:100] + '...'}")
+            
+            if context_thoughts:
+                return "Relevant thoughts from your knowledge graph:\n" + "\n".join(context_thoughts)
+            return ""
     
     def search_notes(self, query: str, limit: int = 5) -> List[ThoughtNode]:
         """Search thoughts by content."""
