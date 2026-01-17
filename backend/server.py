@@ -3,6 +3,10 @@ People's Agent - FastAPI Backend Server
 Serves the LangGraph agent via REST API with knowledge graph capabilities.
 """
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse

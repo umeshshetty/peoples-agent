@@ -31,6 +31,16 @@ from synthesis_agents import run_synthesis_pipeline
 from classification_agents import run_classification_pipeline
 import vector_store
 
+# Cognitive Memory imports
+try:
+    from cognitive_memory import CognitiveEntity, EpisodicMemory, Narrative, calculate_salience
+    from cognitive_extraction_agent import run_cognitive_extraction_pipeline
+    COGNITIVE_MODE = True
+    print("✓ Cognitive Memory Architecture enabled")
+except ImportError as e:
+    COGNITIVE_MODE = False
+    print(f"⚠ Cognitive Memory not available: {e}")
+
 # Configuration
 MODEL_NAME = os.getenv("OLLAMA_MODEL", "glm4")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -87,6 +97,12 @@ class AgentState(TypedDict):
     serendipity_nudges: List[dict]
     atomic_notes_created: List[str]
     task_hierarchy: dict
+    # Cognitive Memory fields
+    cognitive_entities: List[dict]  # CognitiveEntity objects as dicts
+    episodic_memory: dict  # Current episode
+    state_changes: List[dict]  # Entity state transitions
+    narrative_signals: dict  # Narrative detection results
+    salience_score: float  # How important/memorable this thought is
 
 
 # ============================================================================
@@ -156,16 +172,71 @@ async def context_loader(state: AgentState) -> AgentState:
 async def knowledge_extractor(state: AgentState) -> AgentState:
     """
     Extracts entities, categories, and summary from the thought.
-    Uses 'retrieved_notes' and 'conversation_context' to improve extraction accuracy.
+    Uses COGNITIVE EXTRACTION when available for human-like memory modeling.
     """
     # Combine contexts for extraction
     full_context = f"{state.get('conversation_context', '')}\n{state.get('retrieved_notes', '')}"
     
+    # Use Cognitive Extraction if available
+    if COGNITIVE_MODE:
+        print("   ► Using Cognitive Memory Architecture")
+        cognitive_result = await run_cognitive_extraction_pipeline(
+            thought=state['thought'],
+            context=full_context,
+            existing_entities={},  # TODO: Load from graph
+            existing_narratives=[]  # TODO: Load from graph
+        )
+        
+        # Extract cognitive entities
+        cognitive_entities = cognitive_result.get("entities", [])
+        episodic_memory = cognitive_result.get("episodic_memory")
+        state_changes = cognitive_result.get("state_changes", [])
+        narrative_signals = cognitive_result.get("narrative", {})
+        salience_score = cognitive_result.get("salience", 0.5)
+        
+        # Convert cognitive entities to basic Entity format for compatibility
+        entities = []
+        for ce in cognitive_entities:
+            # Build description from semantic facts
+            facts = ce.semantic_facts if hasattr(ce, 'semantic_facts') else []
+            description = "; ".join([f.fact if hasattr(f, 'fact') else str(f) for f in facts[:2]]) if facts else ""
+            entities.append(Entity(
+                name=ce.name,
+                type=ce.entity_type,
+                description=description
+            ))
+        
+        # Get categories and summary using basic extraction (fast)
+        _, categories, summary = await extract_all(state['thought'], context=full_context)
+        
+        # Get related context from knowledge graph
+        entity_names = [e.name for e in entities]
+        related_context = knowledge_graph.get_context_for_thought(entity_names)
+        
+        print(f"   ► Cognitive: {len(cognitive_entities)} entities, salience={salience_score:.2f}")
+        if state_changes:
+            print(f"   ► State changes: {state_changes}")
+        
+        return {
+            **state,
+            "entities": [e.to_dict() for e in entities],
+            "categories": [{"name": c.name, "confidence": c.confidence} for c in categories],
+            "summary": summary,
+            "related_context": related_context,
+            "cognitive_entities": [ce.to_dict() for ce in cognitive_entities],
+            "episodic_memory": episodic_memory.to_dict() if episodic_memory else {},
+            "state_changes": state_changes,
+            "narrative_signals": narrative_signals,
+            "salience_score": salience_score,
+            "stage": "extracted"
+        }
+    
+    # Fallback to basic extraction
     entities, categories, summary = await extract_all(state['thought'], context=full_context)
     
     # Entity Resolution: Disambiguate similar names against existing graph entities
     if entities:
-        existing_entities = knowledge_graph.get_all_entities(limit=100)  # Get existing for comparison
+        existing_entities = knowledge_graph.get_all_entities(limit=100)
         resolved_entities = batch_resolve_entities(
             [e.to_dict() for e in entities],
             existing_entities,
@@ -173,8 +244,7 @@ async def knowledge_extractor(state: AgentState) -> AgentState:
         )
         entities = [Entity(name=e["name"], type=e["type"], description=e.get("description", "")) for e in resolved_entities]
     
-    # Get deeper context from knowledge graph based on extracted entities
-    # This is "2nd hop" retrieval
+    # Get deeper context from knowledge graph
     entity_names = [e.name for e in entities]
     related_context = knowledge_graph.get_context_for_thought(entity_names)
     
@@ -184,6 +254,11 @@ async def knowledge_extractor(state: AgentState) -> AgentState:
         "categories": [{"name": c.name, "confidence": c.confidence} for c in categories],
         "summary": summary,
         "related_context": related_context,
+        "cognitive_entities": [],
+        "episodic_memory": {},
+        "state_changes": [],
+        "narrative_signals": {},
+        "salience_score": 0.5,
         "stage": "extracted"
     }
 
@@ -622,7 +697,13 @@ async def process_thought(thought: str) -> dict:
         "summary": "",
         "related_context": "",
         "reflection_iterations": 0,
-        "critique": ""
+        "critique": "",
+        # Cognitive memory fields
+        "cognitive_entities": [],
+        "episodic_memory": {},
+        "state_changes": [],
+        "narrative_signals": {},
+        "salience_score": 0.5
     }
     
     result = await agent.ainvoke(initial_state)
